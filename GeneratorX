@@ -1,0 +1,184 @@
+generatorX[ciffile_String] := 
+ Module[{cifFile, nombre, FirstInput, FirstOutput, cxcfile, 
+   unitcellbegin, unitcellend, coordinates, cleanup, tally, op, qque, 
+   x, y, z, X, Y, Z, XX, YY, ZZ, XXX, YYY, ZZZ, offset, 
+   stringsplitting, labeling, now, label, opm, split, a, b, 
+   c, \[Alpha], \[Beta], \[Gamma], \[CapitalOmega], A, B, Ce, alpha, 
+   newdata, newdataTemplate, newdataprep, block, sedcommand, fonction,
+    cxsfileandpath, data, SelectingDdata, deData, diData, SucreTag},
+  
+  cifFile = ReadList[ciffile, "String"]; 
+  
+  RunProcess[{"touch", "First_Input.txt"}]; 
+  
+  nombre = FileBaseName[ciffile]; 
+  
+  FirstInput =
+   StringTemplate["s/Numbers/``/;w First_Input.txt" ];
+  RunProcess[{"sed", FirstInput[nombre] , "First_Input_Template" }, 
+   "StandardOutput"]; 
+  
+  RunProcess[{"/Applications/CrystalExplorer.app/Contents/Resources/\
+tonto" , "-i", "First_Input.txt", "-o", "First_Output.txt"}]; 
+  
+  FirstOutput = 
+   ReadList["/Users/yamileemorency/Desktop/Research/First_Output.txt",
+     "String"];
+  
+  cxcfile = ReadList[nombre <> ".cxc", "String"];
+  
+  unitcellbegin = 
+   Position[cxcfile, 
+     Select[cxcfile, StringContainsQ[#, "begin unit_cell"] &][[1]]][[
+    1, 1]];
+  
+  unitcellend = 
+   Position[cxcfile, 
+     Select[cxcfile, StringContainsQ[#, "end unit_cell"] &][[1]]][[1, 
+    1]];
+  
+  coordinates = cxcfile[[unitcellbegin + 1 ;; unitcellend - 1]];
+  
+  cleanup = Delete[#, 2] & /@ StringSplit /@ coordinates;
+  
+  tally = Tally[First /@ cleanup];
+  
+  op = Select[FirstOutput, StringContainsQ[#, "/frac"] &];
+  
+  qque = StringSplit /@ 
+    FirstOutput[[
+     First[Position[FirstOutput, op[[2]]]][[1]] + 2 ;; 
+      First[Position[FirstOutput, "Atom connection table:"]][[1]] - 
+       2]];
+  
+  {x, y, z} = 
+   Transpose[
+    Table[{qque[[i, 4]], qque[[i, 5]], qque[[i, 6]]}, {i, 
+      Length[qque]}]];
+  
+  offset = 
+   ToExpression[
+    Flatten[StringSplit[
+      StringTake[
+       DeleteDuplicates[
+        Select[FirstOutput, StringContainsQ[#, "Fragment"] &]], -5]]]];
+  
+  {XX, YY, ZZ} = ToExpression /@ {x, y, z};
+  
+  {XXX, YYY, ZZZ} = 
+   Transpose[
+    Table[{If[XX[[i]] <= 0.5, XX[[i]] + offset[[1]], XX[[i]]], 
+      If[YY[[i]] <= 0.5, YY[[i]] + offset[[2]], YY[[i]]], 
+      If[ZZ[[i]] <= 0.5, ZZ[[i]] + offset[[3]], ZZ[[i]]]}, {i, 
+      Length[XX]}]];
+  
+  stringsplitting = 
+   StringSplit /@ 
+    FirstOutput[[
+     First[Position[FirstOutput, op[[1]]]][[1]] + 2 ;; 
+      First[Position[FirstOutput, "Cluster atoms"]][[1]] - 3]];
+  
+  labeling = 
+   Table[stringsplitting[[All, 2]][[i]] <> " ", {i, 
+     Length[stringsplitting]}];
+  
+  now = StringJoin /@ 
+    Transpose[{labeling, 
+      StringDelete[
+       ToString /@ Transpose[{XXX, YYY, ZZZ}], {"}", "{", ","}]}];
+  
+  label = tally[[All, 1]];
+  
+  opm = First /@ 
+    Function[placeholder, 
+      Select[now, StringContainsQ[#, placeholder] &]] /@ label;
+  
+  split = Flatten /@ StringSplit /@ opm;
+  
+  {X, Y, Z} = 
+   ToExpression /@ 
+    Transpose[
+     Table[{split[[i, 2]], split[[i, 3]], split[[i, 4]]}, {i, 
+       Length[split]}]];
+  
+  
+  {a, b, c} = 
+   Function[placeholder, 
+     ToExpression[
+      StringDrop[
+       StringTrim[
+        First[Sort[
+          Select[cxcfile, StringContainsQ[#, placeholder] &]]]], 
+       3]]] /@ {"a = ", "b =", "c ="};
+  
+  {\[Alpha], \[Beta], \[Gamma]} = 
+   Function[placeholder, 
+     ToExpression[
+       StringDrop[
+        StringTrim[
+         First[Sort[
+           Select[cxcfile, StringContainsQ[#, placeholder] &]]]], 7]]*
+      Pi/180] /@ {"alpha =", "beta  =", "gamma ="};
+  
+  \[CapitalOmega] = 
+   a*b*c \[Sqrt](1 - Cos[\[Alpha]]^2 - Cos[\[Beta]]^2 - 
+       Cos[\[Gamma]]^2 + 2 Cos[\[Alpha]]*Cos[\[Beta]]*Cos[\[Gamma]]);
+  A = {a, 0, 0};
+  B = {b*Cos[\[Gamma]], b*Sin[\[Gamma]], 0};
+  Ce = {c*Cos[\[Beta]], 
+    c*(Cos[\[Alpha]] - Cos[\[Beta]]*Cos[\[Gamma]])/
+     Sin[\[Gamma]], \[CapitalOmega]/(a*b*Sin[\[Gamma]])}; 
+  
+  alpha = 
+   Round[Transpose[Transpose[{A, B, Ce}].{X, Y, Z}], 0.0001];  
+  
+  newdataTemplate = 
+   StringTemplate[ " ``  ,  ``  ,  ``   ,  ``  ,  0  ,  1.0000  "] ;
+  
+  newdataprep = 
+   MapThread[
+    newdataTemplate @@ Flatten[{#, #2, #3, #4}] &, {label, 
+     alpha[[All, 1]], alpha[[All, 2]], alpha[[All, 3]]}];
+  
+  newdata =
+   StringDelete[newdataprep, {",", "}", "{"}] // StringJoin;
+  
+  block = 
+   StringDrop[Select[cifFile, StringContainsQ[#, "data_"] &][[1]], 
+    5];
+  
+  RunProcess[{"touch", "input_Drogue"}];
+  
+  RunProcess[{"touch", "output_Drogue"}];
+  
+  sedcommand =
+   StringTemplate[
+    "s/Numbers/``/g;s/Blockinfo/``/g;s/newdata/``/g;w input_Drogue" ]; 
+  
+  fonction = 
+   RunProcess[{"sed", sedcommand[nombre, block, newdata] , 
+     "input_template_modified.txt" }, "StandardOutput"]; 
+  RunProcess[{"/Applications/CrystalExplorer.app/Contents/Resources/\
+tonto" , "-i", "input_Drogue", "-o", "output_Drogue"}];
+  
+  cxsfileandpath = 
+   StringReplace[
+    "/Users/yamileemorency/Desktop/Research/nombre_block.cxs", { 
+     "nombre" -> nombre, "block" -> block}];
+  
+  data = ReadList[cxsfileandpath, "String"];
+  
+  SelectingDdata = Select[data, StringContainsQ[#, "begin d_"] &];
+  diData = 
+   data[[Flatten[Position[data, SelectingDdata[[1]]]][[1]] + 1 ;; 
+     Flatten[Position[data, "end d_i"]][[1]] - 1]];
+  
+  deData = 
+   data[[Flatten[Position[data, SelectingDdata[[2]]]][[1]] + 1 ;; 
+     Flatten[Position[data, "end d_e"]][[1]] - 1]];
+  
+  SucreTag = 
+   Table[{ToExpression[diData[[i]]], ToExpression[deData[[i]]]}, {i, 
+     1, Length[deData]}];
+  
+  Export[StringDrop[ciffile, -3] <> "Sucre", SucreTag, "CSV"]]
